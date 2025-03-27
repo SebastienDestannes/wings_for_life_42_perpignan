@@ -6,7 +6,7 @@
 #    By: sdestann <sdestann@tudent.42perpignan.f    +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/03/27 14:28:43 by sdestann          #+#    #+#              #
-#    Updated: 2025/03/27 14:28:44 by sdestann         ###   ########.fr        #
+#    Updated: 2025/03/27 14:56:41 by sdestann         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
@@ -52,6 +52,11 @@ clean:
 filtrer:
 	@echo "📊 Lancement du filtre de résultats OCR (comparaison avec JSON)..."
 	$(PYTHON) filtrer_resultats.py
+
+# Vérification manuelle des dossards inconnus
+verifier:
+	python verifier_manuellement.py
+
 
 # 💬 Aide
 help:
