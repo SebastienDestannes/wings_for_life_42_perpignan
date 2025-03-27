@@ -31,12 +31,41 @@ def deskew_fixed(image, max_angle=15):
 
     return best_image
 
+def deskew_best_rotation(image, max_angle=15):
+    """
+    Teste plusieurs rotations entre -max_angle et +max_angle degrés
+    et garde celle donnant le meilleur groupe de chiffres OCR.
+    """
+    best_image = image
+    best_text = ""
+    config = '--psm 6 -c tessedit_char_whitelist=0123456789'
+
+    for angle in range(-max_angle, max_angle + 1, 2):  # -15 à +15 degrés, pas de 2
+        (h, w) = image.shape[:2]
+        M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+        rotated = cv2.warpAffine(image, M, (w, h),
+                                 flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+        gray = cv2.cvtColor(rotated, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+        text = pytesseract.image_to_string(thresh, config=config).strip()
+
+        matches = re.findall(r"\d{4,6}", text)
+        if matches:
+            candidate = max(matches, key=len)
+            if len(candidate) > len(best_text):
+                best_text = candidate
+                best_image = rotated
+
+    return best_image, best_text
+
+
 
 # 📦 Charge ton modèle entraîné
 model = YOLO("runs/detect/train/weights/best.pt")
 
 # 📷 Charge l'image
-img = cv2.imread("coureurs2.jpg")
+img = cv2.imread("coureurs.jpg")
 assert img is not None, "Image non trouvée"
 
 # ⏱️ Prédiction YOLO
@@ -87,9 +116,18 @@ for i, (box, conf) in enumerate(zip(detections.xyxy, detections.conf)):
     cv2.imwrite(f"dossard_{i}.jpg", roi)
 
     # 🌀 Correction d’inclinaison
-    deskewed = deskew_fixed(roi, max_angle=15)
-
+    deskewed, best_text = deskew_best_rotation(roi, max_angle=15)
     cv2.imwrite(f"dossard_{i}_deskewed.jpg", deskewed)
+
+    if best_text:
+        bib_numbers.append(best_text)
+        print(f"📖 OCR optimisé dans dossard_{i} : {best_text}")
+    else:
+        print(f"📖 Aucun numéro valide trouvé dans dossard_{i}")
+
+
+
+    # cv2.imwrite(f"dossard_{i}_deskewed.jpg", deskewed)
 
     # 🔲 Prétraitement pour OCR
     gray = cv2.cvtColor(deskewed, cv2.COLOR_BGR2GRAY)
@@ -97,22 +135,26 @@ for i, (box, conf) in enumerate(zip(detections.xyxy, detections.conf)):
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
     cv2.imwrite(f"dossard_{i}_thresh.jpg", thresh)
 
-    # 🔠 Tesseract OCR
+    # # 🔠 Tesseract OCR
     # 🔠 Tesseract OCR
     config = '--psm 6 -c tessedit_char_whitelist=0123456789'
     text = pytesseract.image_to_string(thresh, config=config).strip()
 
-    # 🔍 Extraction de séquences de 4 à 6 chiffres
-    matches = re.findall(r"\d{4,6}", text)
-    if matches:
-        best = max(matches, key=len)
-        bib_numbers.append(best)
-        print(f"📖 OCR filtré dans dossard_{i} : {best}")
-    else:
-        print(f"📖 OCR (brut mais non valide) dans dossard_{i} : '{text}'")
+    # # 🔍 Extraction de séquences de 4 à 6 chiffres
+    # matches = re.findall(r"\d{4,6}", text)
+    # if matches:
+    #     best = max(matches, key=len)
+    #     bib_numbers.append(best)
+    #     print(f"📖 OCR filtré dans dossard_{i} : {best}")
+    # else:
+    #     print(f"📖 OCR (brut mais non valide) dans dossard_{i} : '{text}'")
 
+    # 💾 Enregistrement des résultats OCR
     with open("resultats_bib.txt", "w") as f:
         for num in bib_numbers:
             f.write(num + "\n")
 
     print("✅ Résultats OCR enregistrés dans resultats_bib.txt")
+
+
+    
