@@ -43,7 +43,7 @@ def deskew_best_rotation(image, max_angle=15):
 model = YOLO("runs/detect/train/weights/best.pt")
 
 # 📷 Chargement de l’image
-img = cv2.imread("coureurs.jpg")
+img = cv2.imread("./photos/photos_brutes/coureurs.jpg")
 assert img is not None, "Image non trouvée"
 
 # ⏱️ Exécution de la détection
@@ -71,8 +71,8 @@ else:
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
 
 # 💾 Sauvegarde de l’image avec les boîtes de détection
-cv2.imwrite("resultats_detection.jpg", img)
-print("✅ Image enregistrée : resultats_detection.jpg")
+cv2.imwrite("./photos/detect_results/resultats_detection.jpg", img)
+print("✅ Image enregistrée : ./photos/detect_results/resultats_detection.jpg")
 
 # 📜 Liste pour stocker les numéros de dossards détectés
 bib_numbers = []
@@ -92,13 +92,13 @@ for i, (box, conf) in enumerate(zip(detections.xyxy, detections.conf)):
     roi = img[y1p:y2p, x1p:x2p]
 
     # 💾 Sauvegarde du crop original
-    cv2.imwrite(f"dossard_{i}.jpg", roi)
+    cv2.imwrite(f"./photos/crop_dossards/dossard_{i}.jpg", roi)
 
     # 🌀 Correction d’inclinaison + OCR optimisé
     deskewed, best_text = deskew_best_rotation(roi, max_angle=15)
 
     # 💾 Sauvegarde du crop redressé
-    cv2.imwrite(f"dossard_{i}_deskewed.jpg", deskewed)
+    cv2.imwrite(f"./photos/deskewed/dossard_{i}_deskewed.jpg", deskewed)
 
     # ✅ Résultat OCR
     if best_text:
