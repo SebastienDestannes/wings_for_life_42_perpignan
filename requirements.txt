@@ -1,0 +1,6 @@
+ultralytics>=8.0.20
+opencv-python>=4.8.0
+pytesseract>=0.3.10
+numpy>=1.24.0
+matplotlib>=3.7.0
+python-dateutil>=2.8.2
