@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['bib-number']
+
+roboflow:
+  workspace: marco-cheung
+  project: bib-number-labeling
+  version: 14
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/marco-cheung/bib-number-labeling/dataset/14
