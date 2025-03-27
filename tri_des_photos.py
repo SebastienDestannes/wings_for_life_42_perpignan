@@ -1,115 +1,116 @@
-from ultralytics import YOLO
-import cv2
+import os
 import time
+import cv2
 import pytesseract
 import re
+from ultralytics import YOLO
 
-# 🔧 Fonction pour tester plusieurs angles de rotation et trouver celui donnant le meilleur OCR
+# 📁 Dossier contenant les images à analyser (rempli par le script de capture webcam)
+input_dir = "photos/photos_brutes"
+
+# 📝 Fichier où seront enregistrés les résultats (numéros de dossards détectés)
+output_txt = "resultats_batch.txt"
+
+# 🧠 On garde en mémoire les images déjà traitées pour ne pas les analyser deux fois
+déjà_vues = set()
+
+# 📦 Pour stocker les résultats en mémoire (optionnel ici, juste pour log)
+bib_numbers = {}
+
+# 🔍 Chargement du modèle YOLO entraîné (à adapter si le chemin change)
+model = YOLO("runs/detect/train/weights/best.pt")
+
+# 🧠 Fonction OCR avec correction d'inclinaison
 def deskew_best_rotation(image, max_angle=15):
     """
-    Essaye plusieurs rotations de -max_angle à +max_angle degrés
-    pour corriger une inclinaison du texte (deskew).
-    Retourne l'image redressée et le meilleur numéro détecté (4 à 6 chiffres).
+    Tente plusieurs petites rotations de l'image (-15 à +15 degrés),
+    et garde le texte OCR le plus long (4 à 6 chiffres).
+    Cela aide à corriger les dossards mal alignés.
     """
-    best_image = image
     best_text = ""
     config = '--psm 6 -c tessedit_char_whitelist=0123456789'
 
-    for angle in range(-max_angle, max_angle + 1, 2):  # de -15° à +15°, par pas de 2
-        (h, w) = image.shape[:2]
+    for angle in range(-max_angle, max_angle + 1, 2):
+        h, w = image.shape[:2]
         M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
         rotated = cv2.warpAffine(image, M, (w, h),
                                  flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
-        # Préparation pour OCR
+        # Conversion en niveau de gris + seuillage binaire pour OCR
         gray = cv2.cvtColor(rotated, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
 
-        # Lecture OCR
+        # Lancement de l’OCR
         text = pytesseract.image_to_string(thresh, config=config).strip()
 
-        # On garde le plus long groupe de 4 à 6 chiffres
+        # On ne garde que les séquences de chiffres de 4 à 6 chiffres
         matches = re.findall(r"\d{4,6}", text)
         if matches:
             candidate = max(matches, key=len)
             if len(candidate) > len(best_text):
-                best_text = candidate
-                best_image = rotated
+                best_text = candidate  # On garde le meilleur résultat
 
-    return best_image, best_text
+    return best_text
 
 
-# 📦 Chargement du modèle YOLOv8 entraîné pour détecter les dossards
-model = YOLO("runs/detect/train/weights/best.pt")
+print("📂 Surveillance du dossier en cours... CTRL+C pour arrêter.")
 
-# 📷 Chargement de l’image
-img = cv2.imread("./photos/photos_brutes/coureurs.jpg")
-assert img is not None, "Image non trouvée"
+try:
+    while True:
+        # 🧾 Liste des fichiers .jpg présents dans le dossier
+        images = sorted(f for f in os.listdir(input_dir) if f.lower().endswith(".jpg"))
 
-# ⏱️ Exécution de la détection
-start = time.time()
-results = model(img)
-duration = time.time() - start
-detections = results[0].boxes
+        # 🎯 On filtre pour ne traiter que les nouvelles images
+        new_images = [f for f in images if f not in déjà_vues]
 
-print(f"⏱️ Prédiction YOLO faite en {duration:.2f} secondes")
+        for img_name in new_images:
+            img_path = os.path.join(input_dir, img_name)
+            img = cv2.imread(img_path)
 
-# ✅ Affichage des résultats de détection
-if detections is None or len(detections) == 0:
-    print("❌ Aucun dossard détecté")
-else:
-    print(f"✅ {len(detections)} dossard(s) détecté(s) :")
+            if img is None:
+                print(f"⚠️ Image illisible : {img_name}")
+                continue
 
-    for box, cls_id, conf in zip(detections.xyxy, detections.cls, detections.conf):
-        if conf < 0.1:  # seuil de confiance minimal
-            continue
-        x1, y1, x2, y2 = map(int, box)
-        label = model.names[int(cls_id)]
-        print(f"  ➤ '{label}' à ({x1}, {y1}) avec confiance {conf:.2f}")
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(img, label, (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
+            # 🔍 YOLO détecte les dossards
+            results = model(img)
+            detections = results[0].boxes
+            detected_bibs = []
 
-# 💾 Sauvegarde de l’image avec les boîtes de détection
-cv2.imwrite("./photos/detect_results/resultats_detection.jpg", img)
-print("✅ Image enregistrée : ./photos/detect_results/resultats_detection.jpg")
+            # 📦 Pour chaque dossard détecté
+            for box, conf in zip(detections.xyxy, detections.conf):
+                if conf < 0.3:
+                    continue  # On ignore les détections peu fiables
 
-# 📜 Liste pour stocker les numéros de dossards détectés
-bib_numbers = []
+                x1, y1, x2, y2 = map(int, box)
 
-# 🔍 OCR sur chaque dossard détecté
-for i, (box, conf) in enumerate(zip(detections.xyxy, detections.conf)):
-    if conf < 0.3:
-        continue
+                # ✂️ On ajoute un petit padding pour éviter de couper le dossard
+                padding = 5
+                x1p = max(x1 + padding, 0)
+                x2p = min(x2 - padding, img.shape[1])
+                y1p = max(y1 + padding, 0)
+                y2p = min(y2 - padding, img.shape[0])
+                roi = img[y1p:y2p, x1p:x2p]
 
-    # 🔲 Extraction de la zone du dossard avec petit padding
-    x1, y1, x2, y2 = map(int, box)
-    padding = 5
-    x1p = max(x1 + padding, 0)
-    x2p = min(x2 - padding, img.shape[1])
-    y1p = max(y1 + padding, 0)
-    y2p = min(y2 - padding, img.shape[0])
-    roi = img[y1p:y2p, x1p:x2p]
+                # 🌀 OCR avec redressement automatique
+                best_text = deskew_best_rotation(roi)
 
-    # 💾 Sauvegarde du crop original
-    cv2.imwrite(f"./photos/crop_dossards/dossard_{i}.jpg", roi)
+                if best_text:
+                    detected_bibs.append(best_text)
+                    print(f"📖 {img_name} ➤ {best_text}")
 
-    # 🌀 Correction d’inclinaison + OCR optimisé
-    deskewed, best_text = deskew_best_rotation(roi, max_angle=15)
+            # 📝 Enregistrement dans un fichier texte
+            if detected_bibs:
+                bib_numbers[img_name] = detected_bibs
 
-    # 💾 Sauvegarde du crop redressé
-    cv2.imwrite(f"./photos/deskewed/dossard_{i}_deskewed.jpg", deskewed)
+                with open(output_txt, "a") as f:
+                    for number in detected_bibs:
+                        f.write(f"{img_name},{number}\n")
 
-    # ✅ Résultat OCR
-    if best_text:
-        bib_numbers.append(best_text)
-        print(f"📖 OCR optimisé dans dossard_{i} : {best_text}")
-    else:
-        print(f"📖 Aucun numéro valide trouvé dans dossard_{i}")
+            # ✅ On marque cette image comme déjà traitée
+            déjà_vues.add(img_name)
 
-# 💾 Sauvegarde des numéros détectés dans un fichier texte
-with open("resultats_bib.txt", "w") as f:
-    for num in bib_numbers:
-        f.write(num + "\n")
+        # 💤 Pause avant le prochain scan
+        time.sleep(0.5)
 
-print("✅ Résultats OCR enregistrés dans resultats_bib.txt")
+except KeyboardInterrupt:
+    print("\n🛑 Surveillance arrêtée manuellement.")
