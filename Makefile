@@ -6,7 +6,7 @@
 #    By: sdestann <sdestann@tudent.42perpignan.f    +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/03/27 14:28:43 by sdestann          #+#    #+#              #
-#    Updated: 2025/03/27 14:56:41 by sdestann         ###   ########.fr        #
+#    Updated: 2025/03/28 08:37:51 by sdestann         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
@@ -55,7 +55,8 @@ filtrer:
 
 # Vérification manuelle des dossards inconnus
 verifier:
-	python verifier_manuellement.py
+	@echo "📊 Vérification manuelle des dossards inconnus..."
+	$(PYTHON) verifier_manuellement.py
 
 
 # 💬 Aide
@@ -66,3 +67,4 @@ help:
 	@echo "  make analyser    → Lancer le traitement OCR des images"
 	@echo "  make filtrer     → Filtrer les résultats OCR avec la base de dossards"
 	@echo "  make clean       → Supprimer les photos capturées"
+

@@ -1,70 +1,93 @@
-import json
 import datetime
 import os
 import shutil
+import psycopg2
+from dotenv import load_dotenv
 from difflib import get_close_matches
+
+# 🔐 Charger .env
+load_dotenv()
+DB_CONFIG = {
+    "host": os.getenv("POSTGRES_HOST"),
+    "port": int(os.getenv("POSTGRES_PORT", 5432)),
+    "dbname": os.getenv("POSTGRES_DB"),
+    "user": os.getenv("POSTGRES_USER"),
+    "password": os.getenv("POSTGRES_PASSWORD"),
+}
+CHECKPOINT_ID = int(os.getenv("CHECKPOINT_ID", 1))
 
 # 📁 Fichiers
 fichier_dossards = "resultats_batch.txt"
-fichier_participants = "participants.json"
 fichier_erreurs = "a_verifier_manuellement.txt"
-
-# 📁 Dossiers
 photos_source_dir = "photos/photos_brutes"
 photos_erreurs_dir = "photos/dossards_a_verifier"
-
-# 📂 Création du dossier erreurs s’il n’existe pas
 os.makedirs(photos_erreurs_dir, exist_ok=True)
 
-# 🧠 Chargement des dossards officiels
-with open(fichier_participants, "r") as f:
-    participants = json.load(f)
+# 📡 Connexion à la BDD
+conn = psycopg2.connect(**DB_CONFIG)
+cur = conn.cursor()
 
-# 📄 Liste des lignes à analyser
+# 🔍 Charger tous les id_runner connus
+cur.execute("SELECT id_runner FROM participant_data")
+connus = {str(row[0]) for row in cur.fetchall()}
+
+# 📄 Lire le fichier des résultats
 with open(fichier_dossards, "r") as f:
     lignes = [l.strip() for l in f.readlines() if l.strip()]
 
-# 🔁 Traitement des lignes
+# 🔁 Traitement
 for ligne in lignes:
     nom_fichier, dossard_lu = ligne.split(",")
     dossard_lu = dossard_lu.strip()
 
-    # 🕓 Extraction du timestamp depuis le nom du fichier
+    # 📅 Timestamp depuis le nom de fichier
     try:
         date_str = nom_fichier.split("photo_")[1].split(".jpg")[0]
-        date_str = date_str.replace(" (", "_").replace(")", "").replace("-", ":")
-        horodatage = datetime.datetime.strptime(date_str, "%Y:%m:%d_%H:%M:%S")
+        horodatage = datetime.datetime.strptime(date_str, "%Y%m%d_%H%M%S")
     except Exception:
-        horodatage = datetime.datetime.now()  # Fallback si erreur
+        horodatage = datetime.datetime.now()
 
-    if dossard_lu in participants:
-        # ✅ Correspondance exacte
-        participants[dossard_lu]["temps"].append(horodatage.isoformat())
-        print(f"✔️ {dossard_lu} détecté → temps enregistré")
+    image_id = nom_fichier.rsplit(".", 1)[0]
+
+    if dossard_lu in connus:
+        id_runner = int(dossard_lu)
 
     else:
-        # 🔍 Tentative de correction avec correspondance approximative
-        candidats_proches = get_close_matches(dossard_lu, participants.keys(), n=1, cutoff=0.7)
-        if candidats_proches:
-            dossard_corrige = candidats_proches[0]
-            participants[dossard_corrige]["temps"].append(horodatage.isoformat())
-            print(f"🔁 Correction : {dossard_lu} ≈ {dossard_corrige} → temps enregistré")
+        proches = get_close_matches(dossard_lu, connus, n=1, cutoff=0.7)
+        if proches:
+            id_runner = int(proches[0])
+            print(f"🔁 Correction automatique : {dossard_lu} → {id_runner}")
         else:
-            # ❌ Dossard inconnu → à vérifier
+            # ❌ Inconnu → vérification manuelle
             with open(fichier_erreurs, "a") as f:
                 f.write(f"{nom_fichier},{dossard_lu}\n")
-
-            # 📂 Copie de l'image source vers le dossier de vérification
-            chemin_source = os.path.join(photos_source_dir, nom_fichier)
-            chemin_destination = os.path.join(photos_erreurs_dir, nom_fichier)
             try:
-                shutil.copy2(chemin_source, chemin_destination)
-                print(f"❓ Dossard inconnu : {dossard_lu} → Copié dans {chemin_destination}")
+                shutil.copy2(os.path.join(photos_source_dir, nom_fichier),
+                             os.path.join(photos_erreurs_dir, nom_fichier))
             except FileNotFoundError:
-                print(f"⚠️ Image introuvable pour copie : {chemin_source}")
+                pass
+            continue
 
-# 💾 Mise à jour du fichier JSON
-with open(fichier_participants, "w") as f:
-    json.dump(participants, f, indent=2)
+    # ✅ Insertion en base
+    cur.execute("""
+        INSERT INTO raw_data_income_ia (
+            checkpoint_id, is_starting_checkpoint,
+            income_id_runner, image_id, last_time_saw_at,
+            is_treated, is_noise_data
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """, (
+        CHECKPOINT_ID,
+        False,
+        id_runner,
+        image_id,
+        horodatage,
+        False,
+        False
+    ))
+    print(f"✔️ Passage de {id_runner} inséré à {horodatage.isoformat()}")
 
-print("✅ Mise à jour des temps terminée.")
+# 💾 Finalisation
+conn.commit()
+cur.close()
+conn.close()
+print("✅ Tous les dossards connus ont été traités.")
